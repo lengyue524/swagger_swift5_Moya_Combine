@@ -1,0 +1,4 @@
+enum {{classname}}: {{dataType}}, Codable {
+{{#allowableValues}}{{#enumVars}}    case {{name}} = "{{{value}}}"
+{{/enumVars}}{{/allowableValues}}
+}
