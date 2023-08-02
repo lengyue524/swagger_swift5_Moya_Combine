@@ -12,7 +12,7 @@ import Moya
 
 enum {{classname}} {
 {{#operation}}
-    case {{operationId}}{{#allParams}}({{/allParams}}{{#allParams}}{{paramName}}: {{#isEnum}}{{#isContainer}}{{{dataType}}}{{/isContainer}}{{^isContainer}}{{{datatypeWithEnum}}}_{{operationId}}{{/isContainer}}{{/isEnum}}{{^isEnum}}{{{dataType}}}{{/isEnum}}{{^required}}? = nil{{/required}}{{#hasMore}}, {{/hasMore}}{{/allParams}}{{#allParams}}){{/allParams}}
+    case {{operationId}}({{#allParams}}{{paramName}}: {{#isEnum}}{{#isContainer}}{{{dataType}}}{{/isContainer}}{{^isContainer}}{{{datatypeWithEnum}}}_{{operationId}}{{/isContainer}}{{/isEnum}}{{^isEnum}}{{{dataType}}}{{/isEnum}}{{^required}}? = nil{{/required}}{{#hasMore}}, {{/hasMore}}{{/allParams}}, header: [String: String]?)
 {{/operation}}
 }
 
@@ -42,7 +42,7 @@ extension {{classname}}: TargetType {
     var task: Moya.Task {
         switch self {
         {{#operation}}
-        case .{{operationId}}{{#allParams}}({{/allParams}}{{#allParams}}{{paramName}}: let {{paramName}}{{#hasMore}}, {{/hasMore}}{{/allParams}}{{#allParams}}){{/allParams}}:
+        case .{{operationId}}({{#allParams}}{{paramName}}: let {{paramName}}{{#hasMore}}, {{/hasMore}}{{/allParams}}, header: _):
         {{#bodyParam}}
             return .uploadMultipart(FormDataHelper.encodingFormData(forEncodableObject: {{paramName}}) ?? [])
         {{/bodyParam}}
@@ -62,7 +62,12 @@ extension {{classname}}: TargetType {
     }
 
     var headers: [String : String]? {
-        return nil
+        switch self {
+        {{#operation}}
+        case .{{operationId}}({{#allParams}}{{paramName}}: _{{#hasMore}}, {{/hasMore}}{{/allParams}}, header: let header):
+            return header
+        {{/operation}}
+        }
     }
 }
 
@@ -76,38 +81,40 @@ class DAuth{{classname}} {
      - parameter {{paramName}}: ({{#isFormParam}}form{{/isFormParam}}{{#isQueryParam}}query{{/isQueryParam}}{{#isPathParam}}path{{/isPathParam}}{{#isHeaderParam}}header{{/isHeaderParam}}{{#isBodyParam}}body{{/isBodyParam}}) {{description}} {{^required}}(optional{{#defaultValue}}, default to {{{.}}}{{/defaultValue}}){{/required}}{{/allParams}}
      - returns: AnyPublisher<{{#returnType}}{{{returnType}}}{{/returnType}}{{^returnType}}Void{{/returnType}}, ResponseError>
      */
-    class func {{operationId}}({{#allParams}} {{paramName}}: {{#isEnum}}{{#isContainer}}{{{dataType}}}{{/isContainer}}{{^isContainer}}{{{datatypeWithEnum}}}_{{operationId}}{{/isContainer}}{{/isEnum}}{{^isEnum}}{{{dataType}}}{{/isEnum}}{{^required}}? = nil{{/required}}{{#hasMore}}, {{/hasMore}}{{/allParams}}) -> AnyPublisher<{{#returnType}}{{{returnType}}}{{/returnType}}{{^returnType}}Void{{/returnType}}, ResponseError> {
-        return Future<{{#returnType}}{{{returnType}}}{{/returnType}}{{^returnType}}Void{{/returnType}}, ResponseError> { promise in
-            DAuthAPI.provider().request(MultiTarget({{classname}}.{{operationId}}{{#allParams}}({{/allParams}}{{#allParams}} {{paramName}}: {{paramName}}{{#hasMore}}, {{/hasMore}}{{/allParams}}{{#allParams}}){{/allParams}})) { result in
-                switch result {
-                case let .success(res):
-                    guard res.statusCode == 200 else {
-                        promise(.failure(.HttpResponseError(res.statusCode, res.description)))
-                        return
-                    }
-                    do {
-                        let response = try JSONDecoder().decode(DAuthResponse<{{#returnType}}{{{returnType}}}{{/returnType}}{{^returnType}}DAuthVoidData{{/returnType}}>.self, from: res.data)
-                        if response.code != 0 {
-                            promise(.failure(.ServerResponseError(response.code, response.message)))
+    class func {{operationId}}({{#allParams}} {{paramName}}: {{#isEnum}}{{#isContainer}}{{{dataType}}}{{/isContainer}}{{^isContainer}}{{{datatypeWithEnum}}}_{{operationId}}{{/isContainer}}{{/isEnum}}{{^isEnum}}{{{dataType}}}{{/isEnum}}{{^required}}? = nil{{/required}}{{#hasMore}}, {{/hasMore}}{{/allParams}}, header: [String: String]? = nil) -> AnyPublisher<{{#returnType}}{{{returnType}}}{{/returnType}}{{^returnType}}Void{{/returnType}}, ResponseError> {
+        return Deferred {
+            Future<{{#returnType}}{{{returnType}}}{{/returnType}}{{^returnType}}Void{{/returnType}}, ResponseError> { promise in
+                DAuthAPI.provider().request(MultiTarget({{classname}}.{{operationId}}({{#allParams}} {{paramName}}: {{paramName}}{{#hasMore}}, {{/hasMore}}{{/allParams}}, header: header))) { result in
+                    switch result {
+                    case let .success(res):
+                        guard res.statusCode == 200 else {
+                            promise(.failure(.HttpResponseError(res.statusCode, res.description)))
                             return
                         }
-                        {{#returnType}}
-                        guard let data = response.data else {
-                            promise(.failure(.ServerResponseError(DAUTH_SERVER_DATA_NULL, "\(#function)")))
-                            return
+                        do {
+                            let response = try JSONDecoder().decode(DAuthResponse<{{#returnType}}{{{returnType}}}{{/returnType}}{{^returnType}}DAuthVoidData{{/returnType}}>.self, from: res.data)
+                            if response.code != 0 {
+                                promise(.failure(.ServerResponseError(response.code, response.message)))
+                                return
+                            }
+                            {{#returnType}}
+                            guard let data = response.data else {
+                                promise(.failure(.ServerResponseError(DAUTH_SERVER_DATA_NULL, "\(#function)")))
+                                return
+                            }
+                            promise(.success(data))
+                            {{/returnType}}
+                            {{^returnType}}
+                            promise(.success(()))
+                            {{/returnType}}
+                        } catch {
+                            promise(.failure(.JSONDecodeError(error)))
                         }
-                        promise(.success(data))
-                        {{/returnType}}
-                        {{^returnType}}
-                        promise(.success(()))
-                        {{/returnType}}
-                    } catch {
-                        promise(.failure(.JSONDecodeError(error)))
+                    case let .failure(error):
+                        promise(.failure(.ConnectionError(error)))
                     }
-                case let .failure(error):
-                    promise(.failure(.ConnectionError(error)))
+                    
                 }
-                
             }
         }.eraseToAnyPublisher()
     }
